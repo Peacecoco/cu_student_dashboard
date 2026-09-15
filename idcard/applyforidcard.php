@@ -1,20 +1,9 @@
 <?php
-// ID-card domain page. Shared logic is loaded through ../include by the API.
-?><!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Apply for ID Card | CU Student</title>
-    <link rel="stylesheet" href="../assets/css/idcard-apply.css">
-</head>
-<body>
-<div class="app-shell">
-    <aside class="sidebar">
-        <div class="brand"><img src="../assets/images/university-logo.png" alt="Covenant University" onerror="this.style.display='none'"><div><strong>Covenant</strong><span>University</span></div></div>
-        <nav><a class="active" href="applyforidcard.php">Apply for replacement</a><a href="checkappstatus.php">Application status</a><a href="paymentcenter.php">Payment</a></nav>
-    </aside>
-    <main class="content">
+$pageKey = 'apply';
+$pageTitle = 'Apply for ID Card';
+$pageScript = 'idcard-apply';
+require __DIR__ . '/../include/idcard/header.php';
+?>
         <header class="topbar"><div><p class="crumb">Student services / ID card</p><h1>Apply for replacement</h1></div></header>
         <section class="panel gate-panel">
             <h2>Find your application record</h2>
@@ -39,6 +28,4 @@
     </main>
 </div>
 <div id="successModal" class="modal" hidden><div class="modal-card"><h2>Application submitted</h2><p id="successMessage"></p><button id="closeSuccessModal" class="btn primary" type="button">Done</button></div></div>
-<script src="../assets/js/idcard-apply.js"></script>
-</body>
-</html>
+<?php require __DIR__ . '/../include/idcard/footer.php'; ?>

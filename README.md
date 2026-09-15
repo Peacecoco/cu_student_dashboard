@@ -1,4 +1,4 @@
-﻿# CU Student — ID Card Replacement
+# CU Student — ID Card Replacement
 
 Student-facing PHP module for replacement applications, status tracking, invoices, and payment history. It uses plain JavaScript and CSS, with no frontend build or Composer dependencies in this folder.
 
@@ -22,6 +22,10 @@ Keep the project folders as siblings so Student Affairs can resolve their upload
 5. Allow PHP to create/write `uploads/idcard/`. Set PHP upload and POST limits to accommodate two files under the configured size limit.
 6. Open `http://localhost/REFACTOR/cu_student/idcard/applyforidcard.php`; adjust `/REFACTOR/` for your deployment.
 
+## Navigation
+
+Application, status, and payment already use dedicated PHP files. Their URLs and data parameters (`identifier` and `ref`) are preserved. Common layout/navigation now lives in `include/idcard/`; API routing remains in `index.php`.
+
 ## Folder guide
 
 | Path | Purpose |
@@ -33,6 +37,7 @@ Keep the project folders as siblings so Student Affairs can resolve their upload
 | `class/IDCard.php` | Application rules, uploads, invoices, and payment recording. |
 | `class/General.php` | Student lookup, PDO helpers, sanitization, and responses. |
 | `include/` | Database configuration and class loading. |
+| `include/idcard/` | Shared page header/navigation and script footer; each existing page keeps its own content. |
 | `assets/js/` | Application, status, and payment page scripts. |
 | `assets/css/` | Application layout and status/payment styling. |
 | `assets/images/` | University branding. |
@@ -74,4 +79,4 @@ There is no login or application-ownership authorization in this folder. Host-po
 
 ## Manual verification
 
-With disposable development data, submit for an existing student, check duplicate blocking and invalid/oversized uploads, approve in Student Affairs, load the invoice by reference, record a local test payment, and check the printing queue. Also check an expired deadline. These steps write application/payment data. No automated test suite is supplied.
+With disposable development data, submit for an existing student, check duplicate blocking and invalid/oversized uploads, approve in Student Affairs, load the invoice by reference, record a local test payment, and check the printing queue. Also check an expired deadline. These steps write application/payment data. Navigation regression checks are available in the workspace at [tests/navigation_smoke.py](../tests/navigation_smoke.py). Run `python tests/navigation_smoke.py` from REFACTOR with Apache/PHP running. These check page routes, assets, filters, and legacy redirects; they do not exercise application/payment writes.
