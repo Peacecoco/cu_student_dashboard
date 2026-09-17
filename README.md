@@ -37,5 +37,4 @@ The development matric stays server-side and all requests remain ownership-scope
 - `CU_STUDENT_SIMULATOR_RESULT=paid|failed` — local simulator result
 - `CU_STUDENT_PAYMENT_OPTION` — active `paymentoptions` row; it does not call an external gateway
 
-POST requests require actor-bound CSRF tokens. The shared lifecycle service owns payment completion, cancellation, refund eligibility, event history, and locking. Students cannot approve refunds, credit refunds, print cards, collect cards, or access another student’s records.
-
+POST requests require actor-bound CSRF tokens. The domain lifecycle service owns payment completion, cancellation, refund eligibility, event history, and locking. Students cannot approve refunds, credit refunds, print cards, collect cards, or access another student’s records.
