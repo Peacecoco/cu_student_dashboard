@@ -1,34 +1,32 @@
-(() => {
-  const apiUrl = new URL('../index.php', window.location.href).toString();
-  const input = document.getElementById('identifier');
-  const button = document.getElementById('searchButton');
-  const message = document.getElementById('statusMessage');
-  const results = document.getElementById('applicationResults');
-  const queryIdentifier = new URLSearchParams(window.location.search).get('identifier');
-  const request = async url => { const response = await fetch(url); const body = await response.json().catch(() => ({})); if (!response.ok || !body.success) throw new Error(body.message || 'Unable to retrieve application status.'); return body; };
-  const escapeHtml = value => String(value ?? '').replace(/[&<>'"]/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[character]);
-  const label = status => ({ submitted: 'Submitted', awaitingpayment: 'Awaiting payment', paid: 'Paid — awaiting printing', printed: 'Printed', readyforpickup: 'Ready for pickup', acknowledged: 'Collected', rejected: 'Rejected', cancelled: 'Cancelled', closed: 'Closed', expired: 'Payment expired' }[String(status).toLowerCase()] || status);
-  const date = value => value ? new Date(value.replace(' ', 'T')).toLocaleDateString() : 'Not available';
-  const money = value => Number(value || 0).toLocaleString('en-NG', { style: 'currency', currency: 'NGN' });
-  const show = (text, type) => { message.textContent = text; message.className = `notice show ${type}`; };
-  const render = applications => {
-    results.innerHTML = applications.map(app => {
-      const status = String(app.status).toLowerCase();
-      const canPay = status === 'awaitingpayment';
-      const nextStep = canPay ? 'Your application has been approved. Complete payment before the deadline so it can enter the printing queue.' : status === 'paid' ? 'Payment is confirmed. Your card is awaiting printing.' : status === 'readyforpickup' ? 'Your replacement card is ready for collection.' : status === 'submitted' ? 'Your request is awaiting review by Student Services.' : 'See the application status above for the latest update.';
-      return `<article class="application-card"><div class="card-head"><div><strong>${escapeHtml(app.referencenumber)}</strong><span>${escapeHtml(app.applicationtype === 'loststolen' ? 'Lost / Stolen' : 'Damaged')}</span></div><span class="status-badge status-${escapeHtml(status)}">${escapeHtml(label(status))}</span></div><p>${escapeHtml(nextStep)}</p><div class="meta-grid"><div><small>Submitted</small><b>${date(app.createdat)}</b></div><div><small>Approved fee</small><b>${app.approvedfee ? money(app.approvedfee) : 'Pending review'}</b></div><div><small>Payment deadline</small><b>${date(app.paymentdeadline)}</b></div></div>${canPay ? `<a class="btn primary pay-link" href="paymentcenter.php?ref=${encodeURIComponent(app.referencenumber)}">Make payment</a>` : ''}</article>`;
-    }).join('');
-    results.hidden = false;
-  };
-  const load = async () => {
-    const identifier = input.value.trim();
-    if (!identifier) return show('Enter your matriculation number.', 'error');
-    button.disabled = true; button.textContent = 'Checking...'; results.hidden = true;
-    try { const response = await request(`${apiUrl}?identifier=${encodeURIComponent(identifier)}`); render(response.data.applications || []); show(`${response.data.applications.length} application(s) found.`, 'success'); }
-    catch (error) { show(error.message, 'error'); }
-    finally { button.disabled = false; button.textContent = 'Check status'; }
-  };
-  button.addEventListener('click', load);
-  input.addEventListener('keydown', event => { if (event.key === 'Enter') load(); });
-  if (queryIdentifier) { input.value = queryIdentifier; load(); }
+(async () => {
+  const U=window.IDCardUI,rows=document.getElementById('applicationResults'),message=document.getElementById('statusMessage');
+  async function load(){
+    const apps=await U.get('applications');
+    rows.innerHTML=apps.length?apps.map(a=>`<tr><td><strong>${U.esc(a.referencenumber)}</strong><small>${a.applicationtype==='damaged'?'Damaged / Faded':'Lost / Stolen'}</small></td><td><button class="table-action" data-payment="${U.esc(a.referencenumber)}">${a.paymentstatus?U.label(a.paymentstatus):'Not available (legacy)'}</button></td><td><button class="table-action" data-history="${U.esc(a.referencenumber)}">View history</button></td><td><span class="status-badge">${U.label(a.status)}</span>${a.refundstatus?`<small>Refund ${U.label(a.refundstatus).toLowerCase()}</small>`:''}</td></tr>`).join(''):'<tr><td colspan="4">You have no replacement applications yet.</td></tr>';
+  }
+  try{await U.ready;await load();document.getElementById('openRefund').disabled=false;}
+  catch(e){rows.innerHTML='<tr><td colspan="4">Your requests could not be loaded.</td></tr>';U.show(message,e.message);return;}
+  let detailRequest=0;
+  rows.addEventListener('click',async event=>{
+    const trigger=event.target.closest('[data-payment],[data-history]');if(!trigger)return;
+    const serial=++detailRequest;const payment=trigger.hasAttribute('data-payment'),ref=payment?trigger.dataset.payment:trigger.dataset.history;
+    const dialog=document.getElementById(payment?'paymentDialog':'historyDialog'),content=document.getElementById(payment?'paymentDetails':'historyDetails');
+    content.textContent='Loading...';if(!payment)document.getElementById('historyReference').textContent=ref;dialog.showModal();
+    try{
+      const data=await U.get(payment?'paymenthistory':'history',{ref});if(serial!==detailRequest)return;
+      if(payment){
+        content.innerHTML=U.fields([['Reference ID',data.application.referencenumber],['Payment status',data.application.paymentstatus?U.label(data.application.paymentstatus):'Not available for this legacy application']])+(data.transactions.length?data.transactions.map(t=>U.fields([['Recorded result',U.label(t.status)],['Replacement fee',U.money(t.baseamount,t.currency)],['Charges',U.money(t.chargeamount,t.currency)],['Total amount',U.money(t.totalamount,t.currency)],['Currency',t.currency],['Provider',t.provider==='local-simulator'?'Local simulator (no money charged)':t.provider],['Payment reference',t.paymentreference],['Gateway reference',t.gatewayreference],['Payment date / time',U.date(t.paidat)],['Completion date / time',U.date(t.completedat)],['Record created',U.date(t.createdat)],['Failure information',t.failuremessage]])).join(''):'<p>No payment transaction information is available.</p>');
+      }else{
+        const labels={payment_paid:'Payment successful (local simulation)',payment_failed:'Payment failed (local simulation)',refund_requested:'Refund requested',refund_approved:'Refund approved by Student Affairs',refund_credited:'Refund credited by Account Office',card_printed:'ID card printed',card_collected:'ID card collected'};
+        content.innerHTML=data.length?`<ol class="timeline">${data.map(e=>`<li><strong>${U.esc(labels[e.eventtype] || 'Application updated')}</strong><time>${U.esc(U.date(e.occurredat))}</time></li>`).join('')}</ol>`:'<p>Detailed history is not available for this legacy application.</p>';
+      }
+    }catch(e){content.textContent=e.message;}
+  });
+  const dialog=document.getElementById('refundDialog'),form=document.getElementById('refundForm'),button=document.getElementById('submitRefund'),notice=document.getElementById('refundMessage');
+  document.getElementById('openRefund').addEventListener('click',()=>{form.reset();notice.className='notice';dialog.showModal();});
+  form.addEventListener('submit',async event=>{
+    event.preventDefault();if(button.disabled)return;button.disabled=true;
+    try{const result=await U.post('requestrefund',{referencenumber:document.getElementById('refundReference').value.trim()});dialog.close();U.show(message,result.message,'success');await load();}
+    catch(e){U.show(dialog.open?notice:message,e.message);}finally{button.disabled=false;}
+  });
 })();

@@ -1,82 +1,82 @@
-# CU Student — ID Card Replacement
+# CU Student: replacement requests (Phase 3)
 
-Student-facing PHP module for replacement applications, status tracking, invoices, and payment history. It uses plain JavaScript and CSS, with no frontend build or Composer dependencies in this folder.
+Plain PHP/PDO, existing dedicated pages, shared layout, vanilla JavaScript and CU styling. Requires the Phase 2 migration already supplied under `../idcard-system/database/migrations/002_replacement_lifecycle.sql`. Phase 3 adds no schema migration and does not rewrite legacy records.
 
-## Shared workflow
+## Flow
 
-All three projects use the same `idcard_system` MySQL/MariaDB database:
+Authenticated student -> own matric validation -> shared active/cooldown checks -> Lost / Stolen or Damaged / Faded -> required JPEG/PNG passport photo -> checkout attempt -> local simulated terminal paid/failed result -> application, transaction and event created atomically by the shared Lifecycle service.
 
-1. This module creates a `submitted` application.
-2. [CU Student Affairs](../cu_studentaffairs/README.md) approves it as `awaitingpayment` or rejects it.
-3. This module records payment and changes the application to `paid`.
-4. [ID Card System](../idcard-system/README.md) generates cards and records physical printing as `printed`.
+`damaged` remains the stored reason for Damaged / Faded. Supporting documents have no input, validation or processing in the new flow. Historical files and columns are retained. Photo validation checks real upload origin, MIME, image dimensions and configured byte limits. New files use random names. The attempt snapshots the photo path and it is copied to the application only at payment completion. Redundant photos from repeated checkout submissions are removed; photos owned by cancelled/abandoned attempts remain for later retention policy, without application creation.
 
-Keep the project folders as siblings so Student Affairs can resolve their uploaded files.
+The application form and payment page never create placeholder applications. Explicit cancellation uses the shared cancel operation. Navigating via a same-tab page link opens the cancellation dialog; browser refresh/close/back uses the browser's standard unload prompt when supported. Browser abandonment never calls a terminal payment operation. The student's pending checkout can be resumed from Payment or the eligibility gate. Refreshing a completed checkout displays its terminal result rather than paying again. Failed applications have no payment retry button; a new application may be started subject to the shared rules.
 
-## Setup
+## Identity and local setup
 
-1. Use PHP 8.1+ with `pdo_mysql` and `fileinfo`, MySQL/MariaDB, and a PHP-capable server such as Apache/XAMPP.
-2. Follow the [shared database setup](../idcard-system/README.md#database-setup). The printing dump alone lacks application settings and payment tables.
-3. Configure [include/config.php](include/config.php) to use the shared database.
-4. Ensure `students.matric_no` contains the applicant and `idcardsettings` has active `damaged` and `loststolen` rows.
-5. Allow PHP to create/write `uploads/idcard/`. Set PHP upload and POST limits to accommodate two files under the configured size limit.
-6. Open `http://localhost/REFACTOR/cu_student/idcard/applyforidcard.php`; adjust `/REFACTOR/` for your deployment.
+All APIs require `currentStudent()` from `include/session.php`, which uses the Phase 2 PortalSessionAdapter. URLs/POST matric numbers are checked against the trusted identity, not used to establish it. Page shells contain no student data; anonymous API calls return 401 and pages display a sign-in notice.
 
-## Navigation
+Production integration: set server environment variable `CU_STUDENT_IDENTITY_RESOLVER` to a trusted PHP file returning a Closure. It receives the existing session's `loginid` and must query the authoritative CU identity/role source, returning `CU\IdCard\Identity` (including the student's actual matric number and `student` role) or null. Keep the resolver outside the public web root. No guessed numeric role mapping or separate login/password system is introduced. The host portal remains responsible for login, session regeneration and logout.
 
-Application, status, and payment already use dedicated PHP files. Their URLs and data parameters (`identifier` and `ref`) are preserved. Common layout/navigation now lives in `include/idcard/`; API routing remains in `index.php`.
+For isolated local development ONLY, set `CU_STUDENT_DEV_MODE=1` and `CU_STUDENT_DEV_MATRIC` to an existing student matric. This is server configuration, never a form or query parameter. It works only for loopback requests, only without a real session loginid, and never overrides a configured portal resolver. It is off by default. Do not enable it on a deployed/reverse-proxied portal.
 
-## Folder guide
+Example PowerShell, from REFACTOR (replace the placeholder matric):
 
-| Path | Purpose |
-| --- | --- |
-| `idcard/applyforidcard.php` | Eligibility check and replacement application. |
-| `idcard/checkappstatus.php` | Application history; accepts `?identifier=...`. |
-| `idcard/paymentcenter.php` | Invoice, payment options, and history; accepts `?ref=...`. |
-| `index.php` | JSON API router, not a landing page. |
-| `class/IDCard.php` | Application rules, uploads, invoices, and payment recording. |
-| `class/General.php` | Student lookup, PDO helpers, sanitization, and responses. |
-| `include/` | Database configuration and class loading. |
-| `include/idcard/` | Shared page header/navigation and script footer; each existing page keeps its own content. |
-| `assets/js/` | Application, status, and payment page scripts. |
-| `assets/css/` | Application layout and status/payment styling. |
-| `assets/images/` | University branding. |
-| `database/payment_setup.sql` | Payment tables and seeded option charges. |
-| `uploads/idcard/` | Runtime replacement photos and supporting documents. |
+```powershell
+$env:CU_STUDENT_DEV_MODE = '1'
+$env:CU_STUDENT_DEV_MATRIC = 'EXISTING_STUDENT_MATRIC'
+$env:CU_STUDENT_SIMULATOR_RESULT = 'paid'
+& C:/xampp/php/php.exe -S 127.0.0.1:8088 -t .
+```
 
-## Application rules
+Open `http://127.0.0.1:8088/cu_student/idcard/applyforidcard.php`. Ensure PHP's configured session.save_path is writable. To test terminal failure, restart the development server with `CU_STUDENT_SIMULATOR_RESULT=failed`. The browser cannot choose or override the result. Clear development environment variables before production use.
 
-- Reasons are `loststolen` and `damaged`; both require a photo and supporting document.
-- The matriculation number must match a student record.
-- An existing `submitted`, `awaitingpayment`, `paid`, `printed`, `readyforpickup`, or `acknowledged` application blocks another submission.
-- Configured `cooldowndays` blocks reapplication after recently closed/cancelled requests.
-- MIME allowlists and maximum file sizes come from `idcardsettings`. The upload implementation supports JPEG, PNG, and PDF, subject to each field's allowlist.
-- Uploads receive generated filenames and relative database paths. Successful submission returns an `IDC-...` reference.
-- Invoice lookup and payment processing expire overdue unpaid applications. Status-history lookup does not itself run expiry checks.
+Database environment overrides: `CU_STUDENT_DB_HOST`, `CU_STUDENT_DB_NAME`, `CU_STUDENT_DB_USER`, `CU_STUDENT_DB_PASS`; defaults preserve the existing local database configuration. `CU_STUDENT_UPLOAD_PATH` is intended for isolated tests; the default preserves `uploads/idcard` and its existing database-relative paths.
+
+## Simulated payment
+
+The provider is explicitly `local-simulator`; no money moves and no external verification is claimed. `CU_STUDENT_SIMULATOR_RESULT` defaults to paid and also accepts failed. All monetary calculations remain in the Phase 2 service.
+
+`CU_STUDENT_PAYMENT_OPTION` chooses the existing paymentoptions tariff row (default `paystack`) solely to reuse configured charges. It does not invoke that gateway. The UI labels the method Local simulator and shows the actual base fee, charges and total snapshot before completion. No new payment option rows or prices are seeded. A missing/inactive configured tariff is rejected.
 
 ## API
 
-Routes are relative to `index.php`. Responses contain `success`, `message`, and optional `data`.
+All routes are under `index.php`; responses retain success/message/data. POST requires the session's `X-CSRF-Token`, fetched through GET action=session. Tokens are random, session-bound and rotated if the resolved identity changes. Session cookies are HttpOnly and SameSite=Lax, and Secure under HTTPS. The portal owns session lifetime. Errors never return SQL, credentials or raw provider payloads.
 
-| Method | Query | Input / behavior |
-| --- | --- | --- |
-| GET | `?identifier=...` | Student and application history; 404 for unknown student or no applications. |
-| GET | `?action=settings` | Active settings; optional `applicationtype=damaged` or `loststolen`. |
-| GET | `?action=paymentinvoice&ref=...` | Application and options with calculated charges/totals. |
-| GET | `?action=paymenthistory&ref=...` | Recorded transactions for the reference. |
-| POST | `?action=submit` | Multipart: `matricnumber` (or `identifier`), `applicationtype`, `photo`, `document` (or `supportingDocument`). |
-| POST | `?action=processpayment` | JSON: `referencenumber`, `paymentoptioncode`, optional `gatewayreference`. |
+| Method/action | Purpose |
+| --- | --- |
+| GET session | Current student display fields and CSRF token |
+| GET eligibility, matricnumber, optional applicationtype | Shared validation plus pending-checkout reference |
+| GET settings | Active reasons, fee and photo rules |
+| GET applications | Own requests only; legacy ?identifier is accepted only for the same student |
+| GET checkout, optional ref | Own specified or pending attempt; paymentinvoice remains an alias |
+| GET paymenthistory, ref | Own application and safe stored payment fields |
+| GET history, ref | Own real application events, chronologically |
+| POST begincheckout | Multipart matricnumber, applicationtype, photo; submit remains a checkout-only alias |
+| POST processpayment | paymentreference; shared atomic terminal completion |
+| POST cancelcheckout | paymentreference; pending attempt cancellation |
+| POST requestrefund | referencenumber; shared eligibility and refund creation |
 
-Use `ref` for payment GET requests. The generic identifier handler runs first and intercepts requests containing `identifier`, even with a payment action.
+No student endpoints approve refunds, credit refunds or mark cards printed/collected. Unknown and another student's application references return the same neutral error. Even student identities with additional staff roles remain ownership-scoped in this module's detail endpoints.
 
-## Payment behavior and limitations
+## Requests, modals and legacy records
 
-Charges are `approvedfee * chargepercentage + fixedcharge`, rounded to two decimals. Percentages are fractions: `0.0150` means 1.5%. The SQL seed supplies Paystack, Flutterwave, and Remita option names; re-running it updates their charges and active flags.
+`idcard/checkappstatus.php` keeps its URL and becomes Application Requests. The table has reference, clickable payment status, history action and operational status. A refund stage is shown separately when present. The right-aligned Request Refund button submits the entered reference through Lifecycle.requestRefund. Amount is the base fee only; charges remain excluded.
 
-These options are not connected payment gateways. The Pay button generates a local reference, and the API records a successful transaction and changes `awaitingpayment` to `paid` in a database transaction. No payment provider is contacted and receipt of money is not verified.
+Payment modal fields are explicitly selected from stored transactions. Missing currency/provider/timestamps remain N/A; a legacy `successful` transaction is described as Recorded successful (legacy), not retroactively externally verified. Legacy application paymentstatus=NULL is displayed as Not available (legacy), without inferring Paid from card status.
 
-There is no login or application-ownership authorization in this folder. Host-portal authentication and verified gateway processing remain integration work. Pickup, collection, cancellation, and closure actions are not implemented here, although their statuses can be displayed.
+History reads idcardapplicationevents only. No history is synthesized from statuses or updatedat. Empty legacy history displays a clear message. All dates/times display explicitly in Africa/Lagos. Native dialogs support keyboard focus and Escape; tables scroll within their container on mobile.
 
-## Manual verification
+## Tests and phase boundary
 
-With disposable development data, submit for an existing student, check duplicate blocking and invalid/oversized uploads, approve in Student Affairs, load the invoice by reference, record a local test payment, and check the printing queue. Also check an expired deadline. These steps write application/payment data. Navigation regression checks are available in the workspace at [tests/navigation_smoke.py](../tests/navigation_smoke.py). Run `python tests/navigation_smoke.py` from REFACTOR with Apache/PHP running. These check page routes, assets, filters, and legacy redirects; they do not exercise application/payment writes.
+From REFACTOR:
+
+```powershell
+python -B tests/student_phase3.py
+$env:CU_STUDENT_BROWSER_TEST = '1'
+python -B tests/student_phase3.py
+& C:/xampp/php/php.exe tests/lifecycle_phase2.php
+python -B tests/navigation_smoke.py
+```
+
+HTTP tests use a random disposable schema and temporary photo/session storage, verify live records are unchanged, and remove only their own fixtures. Optional browser checks use installed Edge in headless mode and save screenshots with fake test data under tests/artifacts. Phase 2 covers row-lock contention and duplicate completion. Navigation tests retain the original three-project route coverage, with the student heading updated.
+
+Student Affairs and Account Officer interfaces are unchanged. Phase 4 must connect Awaiting Printing and the renderer to the shared selection/batch-item/physical-confirmation services, add the before/after filter and collection UI, while retaining the v2 guards. New paid student requests remain excluded from the legacy printing UI until that phase. Production use still requires the authoritative identity resolver; real payment integration remains intentionally out of scope.

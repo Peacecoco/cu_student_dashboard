@@ -1,25 +1,39 @@
-(() => {
-  const apiUrl = new URL('../index.php', window.location.href).toString();
-  const reference = document.getElementById('reference');
-  const loadButton = document.getElementById('loadButton');
-  const payButton = document.getElementById('payButton');
-  const optionSelect = document.getElementById('paymentOption');
-  const message = document.getElementById('paymentMessage');
-  const invoicePanel = document.getElementById('invoicePanel');
-  const historyPanel = document.getElementById('historyPanel');
-  const invoiceDetails = document.getElementById('invoiceDetails');
-  const history = document.getElementById('paymentHistory');
-  let invoice = null; let options = [];
-  const queryReference = new URLSearchParams(window.location.search).get('ref');
-  const request = async (url, init) => { const response = await fetch(url, init); const body = await response.json().catch(() => ({})); if (!response.ok || !body.success) throw new Error(body.message || 'Unable to complete the payment request.'); return body; };
-  const money = value => Number(value || 0).toLocaleString('en-NG', { style: 'currency', currency: 'NGN' });
-  const date = value => value ? new Date(value.replace(' ', 'T')).toLocaleDateString() : 'Not available';
-  const show = (text, type) => { message.textContent = text; message.className = `notice show ${type}`; };
-  const selected = () => options.find(option => option.optioncode === optionSelect.value);
-  const renderInvoice = () => { const option = selected(); invoiceDetails.innerHTML = `<div><small>Application reference</small><b>${invoice.referencenumber}</b></div><div><small>Replacement fee</small><b>${money(invoice.approvedfee)}</b></div><div><small>Payment deadline</small><b>${date(invoice.paymentdeadline)}</b></div><div><small>Total payable</small><b>${money(option?.totalamount)}</b></div>`; payButton.textContent = `Pay ${money(option?.totalamount)}`; };
-  const loadHistory = async ref => { const response = await request(`${apiUrl}?action=paymenthistory&ref=${encodeURIComponent(ref)}`); const entries = response.data.transactions || []; history.innerHTML = entries.length ? `<div class="history-list">${entries.map(item => `<div><b>${item.paymentreference}</b><span>${item.paymentoptionname} · ${money(item.totalamount)} · ${date(item.paidat || item.createdat)}</span></div>`).join('')}</div>` : '<p>No payment has been recorded for this application.</p>'; historyPanel.hidden = false; };
-  const loadInvoice = async () => { const ref = reference.value.trim(); if (!ref) return show('Enter an application reference.', 'error'); loadButton.disabled = true; loadButton.textContent = 'Loading...'; invoicePanel.hidden = true; try { const response = await request(`${apiUrl}?action=paymentinvoice&ref=${encodeURIComponent(ref)}`); invoice = response.data.application; options = response.data.paymentoptions || []; if (!options.length) { show(invoice.status === 'expired' ? 'This payment deadline has passed.' : 'This application does not have a pending payment invoice.', 'warning'); await loadHistory(ref); return; } optionSelect.innerHTML = options.map(option => `<option value="${option.optioncode}">${option.optionname}</option>`).join(''); renderInvoice(); invoicePanel.hidden = false; show('Invoice loaded. Select a payment gateway to continue.', 'success'); await loadHistory(ref); } catch (error) { show(error.message, 'error'); } finally { loadButton.disabled = false; loadButton.textContent = 'Load invoice'; } };
-  optionSelect.addEventListener('change', renderInvoice); loadButton.addEventListener('click', loadInvoice);
-  payButton.addEventListener('click', async () => { const option = selected(); if (!invoice || !option) return; if (!window.confirm(`Confirm payment of ${money(option.totalamount)} via ${option.optionname}?`)) return; payButton.disabled = true; payButton.textContent = 'Processing...'; try { const result = await request(`${apiUrl}?action=processpayment`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ referencenumber: invoice.referencenumber, paymentoptioncode: option.optioncode, gatewayreference: `${option.optioncode}-${Date.now()}` }) }); show(`Payment successful. Receipt reference: ${result.data.paymentreference}. Your card is now awaiting printing.`, 'success'); invoicePanel.hidden = true; await loadHistory(invoice.referencenumber); } catch (error) { show(error.message, 'error'); } finally { payButton.disabled = false; payButton.textContent = 'Pay'; } });
-  if (queryReference) { reference.value = queryReference; loadInvoice(); }
+(async () => {
+  const U=window.IDCardUI,message=document.getElementById('paymentMessage'),actions=document.getElementById('paymentActions'),cancelDialog=document.getElementById('cancelDialog'),payDialog=document.getElementById('payDialog');
+  let checkout=null,active=false,busy=false,destination='applyforidcard.php?cancelled=1';
+  const toggleBusy=value=>{busy=value;document.getElementById('payButton').disabled=value;document.getElementById('cancelButton').disabled=value;};
+  const render=()=>{
+    active=checkout.status==='pending';document.getElementById('invoicePanel').hidden=false;actions.hidden=!active;
+    document.getElementById('invoiceDetails').innerHTML=U.fields([['Checkout reference',checkout.paymentreference],['Reason',checkout.applicationtype==='damaged'?'Damaged / Faded':'Lost / Stolen'],['Replacement fee',U.money(checkout.baseamount,checkout.currency)],['Payment charges',U.money(checkout.chargeamount,checkout.currency)],['Total',U.money(checkout.totalamount,checkout.currency)],['Payment method','Local simulator']]);
+    document.getElementById('checkoutStatus').textContent=active?'No application has been created for this checkout.':checkout.status==='cancelled'?'Checkout cancelled. No application was created.':`Payment ${U.label(checkout.status).toLowerCase()}. Application reference: ${checkout.referencenumber}. View Application Requests for details.`;
+  };
+  try {
+    await U.ready;const params=new URLSearchParams(location.search);const ref=params.get('attempt') || params.get('ref') || '';
+    if(ref.startsWith('IDC-')) {U.show(message,'Use Application Requests to view this application and its payment information.','info');return;}
+    checkout=await U.get('checkout',ref?{ref}:{});
+    if(!checkout){U.show(message,'You have no pending checkout. Start from Apply for replacement.','info');return;}
+    history.replaceState(null,'',`paymentcenter.php?attempt=${encodeURIComponent(checkout.paymentreference)}`);render();
+  } catch(e){U.show(message,e.message);return;}
+  document.getElementById('payButton').addEventListener('click',()=>{document.getElementById('payConfirmText').textContent=`Complete a local simulated payment of ${U.money(checkout.totalamount,checkout.currency)}? A terminal result will create your application.`;payDialog.showModal();});
+  document.getElementById('confirmPay').addEventListener('click',async()=>{
+    if(busy)return;payDialog.close();toggleBusy(true);
+    try {
+      const result=await U.post('processpayment',{paymentreference:checkout.paymentreference});
+      checkout.status=result.paymentstatus;checkout.referencenumber=result.referencenumber;render();
+      U.show(message,`${result.paymentstatus==='paid'?'Simulated payment successful.':'Simulated payment failed.'} Your ${result.paymentstatus==='paid'?'paid':'failed-payment'} request has been recorded. Reference: ${result.referencenumber}.`,result.paymentstatus==='paid'?'success':'warning');
+    } catch(e){U.show(message,e.message);} finally{toggleBusy(false);}
+  });
+  document.getElementById('cancelButton').addEventListener('click',()=>{destination='applyforidcard.php?cancelled=1';cancelDialog.showModal();});
+  document.getElementById('confirmCancel').addEventListener('click',async()=>{
+    if(busy)return;cancelDialog.close();toggleBusy(true);
+    try {await U.post('cancelcheckout',{paymentreference:checkout.paymentreference});active=false;toggleBusy(false);location.href=destination;}
+    catch(e){U.show(message,e.message);toggleBusy(false);}
+  });
+  document.addEventListener('click',event=>{
+    const link=event.target.closest('a[href]');if(!link || !active)return;
+    if(event.ctrlKey || event.metaKey || event.shiftKey || link.target==='_blank')return;
+    event.preventDefault();if(busy){U.show(message,'Please wait for the payment request to finish.','info');return;}
+    destination=link.href;cancelDialog.showModal();
+  });
+  window.addEventListener('beforeunload',event=>{if(active || busy){event.preventDefault();event.returnValue='';}});
 })();
