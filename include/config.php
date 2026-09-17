@@ -1,10 +1,10 @@
 <?php
 // Shared configuration for the CU Student ID-card module.
 date_default_timezone_set('Africa/Lagos');
-define('DB_HOST', getenv('CU_STUDENT_DB_HOST') ?: 'localhost');
-define('DB_NAME', getenv('CU_STUDENT_DB_NAME') ?: 'idcard_system');
-define('DB_USER', getenv('CU_STUDENT_DB_USER') ?: 'root');
-define('DB_PASS', getenv('CU_STUDENT_DB_PASS') ?: '');
+define('DB_HOST', 'localhost');
+define('DB_NAME', 'idcard_system');
+define('DB_USER', 'root');
+define('DB_PASS', '');
 define('BASE_PATH', dirname(__DIR__));
 define('IDCARD_UPLOAD_PATH', getenv('CU_STUDENT_UPLOAD_PATH') ?: BASE_PATH . '/uploads/idcard');
 
